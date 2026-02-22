@@ -32,3 +32,7 @@ export async function analyzeSession(sessionId: string): Promise<AnalysisResult>
 export async function exportSession(sessionId: string): Promise<{ csvPath: string; jsonPath: string }> {
   return invoke("export_session", { sessionId });
 }
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  return invoke("delete_session", { sessionId });
+}

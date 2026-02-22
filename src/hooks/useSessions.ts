@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { analyzeSession, getSessionDetails, listSessions, startRecording, stopRecording } from "../lib/tauriApi";
+import {
+  analyzeSession,
+  deleteSession,
+  getSessionDetails,
+  listSessions,
+  startRecording,
+  stopRecording
+} from "../lib/tauriApi";
 import type { AnalysisResult, Session, SessionDetails } from "../types";
 
 export function useSessions() {
@@ -108,6 +115,31 @@ export function useSessions() {
     [refreshSessions, refreshDetails]
   );
 
+  const onDelete = useCallback(
+    async (sessionId: string): Promise<void> => {
+      setLoading(true);
+      setError(null);
+      try {
+        await deleteSession(sessionId);
+        const all = await listSessions();
+        setSessions(all);
+
+        const nextSelected = all[0]?.id ?? null;
+        setSelectedId(nextSelected);
+        if (nextSelected) {
+          await refreshDetails(nextSelected);
+        } else {
+          setDetails(null);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to delete session");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [refreshDetails]
+  );
+
   const recordingSession = sessions.find((session) => session.status === "recording") ?? null;
 
   return {
@@ -121,6 +153,7 @@ export function useSessions() {
     onStartRecording,
     onStopRecording,
     onAnalyze,
+    onDelete,
     refreshSessions,
     refreshDetails
   };

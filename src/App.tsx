@@ -16,7 +16,8 @@ export function App() {
     recordingSession,
     onStartRecording,
     onStopRecording,
-    onAnalyze
+    onAnalyze,
+    onDelete
   } = useSessions();
   const [exportMessage, setExportMessage] = useState<string | null>(null);
 
@@ -24,6 +25,13 @@ export function App() {
   const analysis = details?.analysis;
 
   const canAnalyze = useMemo(() => {
+    if (!selectedSession) {
+      return false;
+    }
+    return selectedSession.status !== "recording" && selectedSession.status !== "processing";
+  }, [selectedSession]);
+
+  const canDelete = useMemo(() => {
     if (!selectedSession) {
       return false;
     }
@@ -40,6 +48,20 @@ export function App() {
     } catch (err) {
       setExportMessage(err instanceof Error ? err.message : "Export failed");
     }
+  };
+
+  const onDeleteSession = async () => {
+    if (!selectedSession || !canDelete) {
+      return;
+    }
+
+    const confirmed = window.confirm("Sure you want to delete this recording? This cannot be undone.");
+    if (!confirmed) {
+      return;
+    }
+
+    await onDelete(selectedSession.id);
+    setExportMessage(null);
   };
 
   return (
@@ -105,6 +127,9 @@ export function App() {
                 </button>
                 <button type="button" onClick={onExport} disabled={!analysis || loading}>
                   Export CSV/JSON
+                </button>
+                <button type="button" className="danger-button" onClick={() => void onDeleteSession()} disabled={!canDelete || loading}>
+                  Delete Recording
                 </button>
               </div>
 

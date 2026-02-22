@@ -226,6 +226,32 @@ fn export_session(app: tauri::AppHandle, session_id: String) -> Result<ExportPat
     })
 }
 
+#[tauri::command]
+fn delete_session(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let active_guard = state
+        .active_recording
+        .lock()
+        .map_err(|_| "failed to lock active recording state".to_string())?;
+    if let Some(active) = active_guard.as_ref() {
+        if active.session_id == session_id {
+            return Err("cannot delete while session is recording".to_string());
+        }
+    }
+    drop(active_guard);
+
+    let dir = sessions_root(&app)?.join(&session_id);
+    if !dir.exists() {
+        return Ok(());
+    }
+
+    fs::remove_dir_all(&dir).map_err(|e| format!("failed to delete session dir: {e}"))?;
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(AppState::default())
@@ -235,7 +261,8 @@ fn main() {
             list_sessions,
             get_session_details,
             analyze_session,
-            export_session
+            export_session,
+            delete_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

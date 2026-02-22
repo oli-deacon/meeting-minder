@@ -29,6 +29,10 @@ button:disabled {
   cursor: default;
 }
 
+.danger-button {
+  background: #a4382a;
+}
+
 h1,
 h2,
 p {
