@@ -1,0 +1,1 @@
+# v1 analyzer intentionally uses Python stdlib only for local/offline execution.
