@@ -156,14 +156,32 @@ def _voice_activity_segments(
     p90 = percentile(0.90)
     # Adaptive VAD threshold based on clip energy spread:
     # threshold = noise floor + fraction of dynamic range.
-    # This is robust for low-gain recordings where absolute RMS can be small.
-    threshold = max(20.0, p10 + (p90 - p10) * 0.35)
+    # Keep this fairly permissive for laptop-mic, low-gain recordings.
+    threshold = max(18.0, p10 + (p90 - p10) * 0.22)
+
+    frame_duration = frame_samples / sample_rate
+    speech_mask = [rms >= threshold for rms in rms_values]
+    # Fill short non-speech gaps to avoid over-fragmenting continuous speech.
+    max_gap_frames = max(1, int(0.24 / frame_duration))
+    idx = 0
+    while idx < len(speech_mask):
+        if speech_mask[idx]:
+            idx += 1
+            continue
+        gap_start = idx
+        while idx < len(speech_mask) and not speech_mask[idx]:
+            idx += 1
+        gap_end = idx
+        gap_len = gap_end - gap_start
+        if gap_start > 0 and gap_end < len(speech_mask) and gap_len <= max_gap_frames:
+            if speech_mask[gap_start - 1] and speech_mask[gap_end]:
+                for k in range(gap_start, gap_end):
+                    speech_mask[k] = True
 
     segments: list[tuple[int, int]] = []
     in_speech = False
     start_idx = 0
-    for idx, rms in enumerate(rms_values):
-        speaking = rms >= threshold
+    for idx, speaking in enumerate(speech_mask):
         if speaking and not in_speech:
             in_speech = True
             start_idx = idx
@@ -171,9 +189,8 @@ def _voice_activity_segments(
             segments.append((start_idx, idx))
             in_speech = False
     if in_speech:
-        segments.append((start_idx, len(rms_values)))
+        segments.append((start_idx, len(speech_mask)))
 
-    frame_duration = frame_samples / sample_rate
     enriched: list[tuple[float, float, float, float, float]] = []
     chunk_samples = max(1, int(sample_rate * 1.0))
     min_chunk_samples = max(1, int(sample_rate * 0.35))
@@ -341,7 +358,7 @@ def analyze_wav(input_path: Path, output_path: Path) -> AnalysisResult:
         meta=AnalysisMeta(
             total_speech_sec=total_speech,
             processing_ms=processing_ms,
-            model_version="heuristic-v2",
+            model_version="heuristic-v3",
         ),
     )
 

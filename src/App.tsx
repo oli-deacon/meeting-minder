@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { exportSession } from "./lib/tauriApi";
 import { formatSeconds, isoToDisplay } from "./lib/format";
 import { useSessions } from "./hooks/useSessions";
@@ -20,6 +20,7 @@ export function App() {
     onDelete
   } = useSessions();
   const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null);
 
   const selectedSession = details?.session;
   const analysis = details?.analysis;
@@ -54,15 +55,23 @@ export function App() {
     if (!selectedSession || !canDelete) {
       return;
     }
+    setPendingDeleteSessionId(selectedSession.id);
+  };
 
-    const confirmed = window.confirm("Sure you want to delete this recording? This cannot be undone.");
-    if (!confirmed) {
+  const onConfirmDelete = async () => {
+    if (!selectedSession || pendingDeleteSessionId !== selectedSession.id) {
       return;
     }
-
     await onDelete(selectedSession.id);
+    setPendingDeleteSessionId(null);
     setExportMessage(null);
   };
+
+  useEffect(() => {
+    if (!selectedSession || pendingDeleteSessionId !== selectedSession.id) {
+      setPendingDeleteSessionId(null);
+    }
+  }, [selectedSession, pendingDeleteSessionId]);
 
   return (
     <main className="layout">
@@ -132,6 +141,20 @@ export function App() {
                   Delete Recording
                 </button>
               </div>
+
+              {pendingDeleteSessionId === selectedSession.id && (
+                <div className="confirm-delete">
+                  <p>Sure you want to delete this recording? This cannot be undone.</p>
+                  <div className="actions">
+                    <button type="button" className="danger-button" onClick={() => void onConfirmDelete()} disabled={loading}>
+                      Yes, Delete
+                    </button>
+                    <button type="button" onClick={() => setPendingDeleteSessionId(null)} disabled={loading}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {exportMessage && <p className="hint">{exportMessage}</p>}
             </div>
