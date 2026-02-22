@@ -43,4 +43,4 @@ npm run tauri:dev
 - Tests: `tests/`
 
 ## Analyzer note
-The v1 analyzer is intentionally offline and stdlib-based (`heuristic-v1`) to keep setup simple. You can later swap the Python sidecar to a pyannote-based diarization implementation while preserving the same JSON output contract.
+The analyzer is intentionally offline and stdlib-based (`heuristic-v2`) to keep setup simple and local-only.

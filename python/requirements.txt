@@ -1,1 +1,2 @@
-# v1 analyzer intentionally uses Python stdlib only for local/offline execution.
+# The bundled analyzer is fully stdlib-based.
+# No third-party Python dependencies are required for v1.

@@ -41,6 +41,41 @@ class AnalysisResult:
     meta: AnalysisMeta
 
 
+def result_to_payload(result: AnalysisResult) -> dict:
+    return {
+        "sessionId": result.session_id,
+        "totalSpeechSec": result.total_speech_sec,
+        "speakers": [
+            {
+                "speakerId": s.speaker_id,
+                "totalSec": s.total_sec,
+                "percentage": s.percentage,
+                "segmentCount": s.segment_count,
+            }
+            for s in result.speakers
+        ],
+        "segments": [
+            {
+                "startSec": s.start_sec,
+                "endSec": s.end_sec,
+                "speakerId": s.speaker_id,
+            }
+            for s in result.segments
+        ],
+        "meta": {
+            "totalSpeechSec": result.meta.total_speech_sec,
+            "processingMs": result.meta.processing_ms,
+            "modelVersion": result.meta.model_version,
+        },
+    }
+
+
+def write_analysis_json(result: AnalysisResult, output_path: Path) -> None:
+    payload = result_to_payload(result)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 def _read_mono_pcm16(path: Path) -> tuple[list[int], int]:
     with wave.open(str(path), "rb") as wf:
         sample_rate = wf.getframerate()
@@ -310,33 +345,5 @@ def analyze_wav(input_path: Path, output_path: Path) -> AnalysisResult:
         ),
     )
 
-    payload = {
-        "sessionId": result.session_id,
-        "totalSpeechSec": result.total_speech_sec,
-        "speakers": [
-            {
-                "speakerId": s.speaker_id,
-                "totalSec": s.total_sec,
-                "percentage": s.percentage,
-                "segmentCount": s.segment_count,
-            }
-            for s in result.speakers
-        ],
-        "segments": [
-            {
-                "startSec": s.start_sec,
-                "endSec": s.end_sec,
-                "speakerId": s.speaker_id,
-            }
-            for s in result.segments
-        ],
-        "meta": {
-            "totalSpeechSec": result.meta.total_speech_sec,
-            "processingMs": result.meta.processing_ms,
-            "modelVersion": result.meta.model_version,
-        },
-    }
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    write_analysis_json(result, output_path)
     return result
