@@ -45,6 +45,22 @@ class AnalyzerCoreTests(unittest.TestCase):
         speakers = {s.speaker_id for s in segments}
         self.assertEqual(speakers, {"Speaker 1", "Speaker 2"})
 
+    def test_cluster_speakers_can_detect_three_groups(self) -> None:
+        features = [
+            (0.0, 1.0, 35.0, 0.020, 60.0),
+            (1.0, 2.0, 38.0, 0.021, 63.0),
+            (2.0, 3.0, 42.0, 0.024, 66.0),
+            (3.0, 4.0, 68.0, 0.055, 110.0),
+            (4.0, 5.0, 72.0, 0.058, 116.0),
+            (5.0, 6.0, 76.0, 0.060, 122.0),
+            (6.0, 7.0, 108.0, 0.090, 172.0),
+            (7.0, 8.0, 112.0, 0.094, 178.0),
+            (8.0, 9.0, 118.0, 0.097, 184.0),
+        ]
+        segments = _cluster_speakers(features)
+        speakers = {s.speaker_id for s in segments}
+        self.assertEqual(speakers, {"Speaker 1", "Speaker 2", "Speaker 3"})
+
 
 if __name__ == "__main__":
     unittest.main()

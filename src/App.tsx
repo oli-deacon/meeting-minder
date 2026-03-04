@@ -3,7 +3,9 @@ import { exportSession } from "./lib/tauriApi";
 import { formatSeconds, isoToDisplay } from "./lib/format";
 import { useSessions } from "./hooks/useSessions";
 import { SpeakerBars } from "./components/SpeakerBars";
+import { RecordingPromptPanel } from "./components/RecordingPromptPanel";
 import { SessionsList } from "./components/SessionsList";
+import { pickSessionStarters, PROMPTS_PER_SESSION, STATEMENT_STARTERS } from "./lib/statementStarters";
 
 export function App() {
   const {
@@ -21,6 +23,8 @@ export function App() {
   } = useSessions();
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null);
+  const [sessionPrompts, setSessionPrompts] = useState<string[]>([]);
+  const [isPromptPanelCollapsed, setIsPromptPanelCollapsed] = useState(false);
 
   const selectedSession = details?.session;
   const analysis = details?.analysis;
@@ -73,6 +77,16 @@ export function App() {
     }
   }, [selectedSession, pendingDeleteSessionId]);
 
+  useEffect(() => {
+    if (!recordingSession) {
+      setSessionPrompts([]);
+      setIsPromptPanelCollapsed(false);
+      return;
+    }
+    setSessionPrompts(pickSessionStarters(STATEMENT_STARTERS, PROMPTS_PER_SESSION));
+    setIsPromptPanelCollapsed(false);
+  }, [recordingSession?.id]);
+
   return (
     <main className="layout">
       <header className="header">
@@ -93,6 +107,13 @@ export function App() {
       {recordingSession && (
         <section className="recording-banner">Recording in progress: session {recordingSession.id}</section>
       )}
+      <RecordingPromptPanel
+        visible={!!recordingSession}
+        sessionId={recordingSession?.id ?? ""}
+        prompts={sessionPrompts}
+        isCollapsed={isPromptPanelCollapsed}
+        onToggleCollapse={() => setIsPromptPanelCollapsed((current) => !current)}
+      />
 
       {error && <section className="error-banner">{error}</section>}
 

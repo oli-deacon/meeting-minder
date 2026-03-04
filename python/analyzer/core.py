@@ -243,39 +243,76 @@ def _cluster_speakers(vad_segments: Sequence[tuple[float, float, float, float, f
 
     norm_points = [tuple((p[i] - means[i]) / stdevs[i] for i in range(dims)) for p in points]
 
-    seed_a = min(norm_points, key=lambda p: p[0])
-    seed_b = max(norm_points, key=lambda p: p[0])
-    c1 = [seed_a[0], seed_a[1], seed_a[2]]
-    c2 = [seed_b[0], seed_b[1], seed_b[2]]
+    def run_kmeans(
+        cluster_count: int,
+    ) -> tuple[list[int], list[list[float]], list[int], float]:
+        ordered_indices = sorted(range(len(norm_points)), key=lambda idx: norm_points[idx][0])
+        centroids: list[list[float]] = []
+        for cluster_idx in range(cluster_count):
+            pos = (cluster_idx + 0.5) / cluster_count
+            pick = int(pos * (len(ordered_indices) - 1))
+            seed_idx = ordered_indices[max(0, min(len(ordered_indices) - 1, pick))]
+            centroids.append([norm_points[seed_idx][k] for k in range(dims)])
 
-    labels = [0] * len(norm_points)
-    for _ in range(20):
-        changed = False
+        labels = [0] * len(norm_points)
+        for _ in range(30):
+            changed = False
+            for idx, point in enumerate(norm_points):
+                distances = [
+                    sum((point[k] - centroids[cluster_id][k]) ** 2 for k in range(dims))
+                    for cluster_id in range(cluster_count)
+                ]
+                next_label = min(range(cluster_count), key=lambda cluster_id: distances[cluster_id])
+                if next_label != labels[idx]:
+                    labels[idx] = next_label
+                    changed = True
+
+            for cluster_id in range(cluster_count):
+                members = [norm_points[i] for i, label in enumerate(labels) if label == cluster_id]
+                if members:
+                    centroids[cluster_id] = [
+                        sum(member[k] for member in members) / len(members) for k in range(dims)
+                    ]
+            if not changed:
+                break
+
+        counts = [sum(1 for label in labels if label == cluster_id) for cluster_id in range(cluster_count)]
+        sse = 0.0
         for idx, point in enumerate(norm_points):
-            d1 = sum((point[k] - c1[k]) ** 2 for k in range(dims))
-            d2 = sum((point[k] - c2[k]) ** 2 for k in range(dims))
-            next_label = 0 if d1 <= d2 else 1
-            if next_label != labels[idx]:
-                labels[idx] = next_label
-                changed = True
+            sse += sum((point[k] - centroids[labels[idx]][k]) ** 2 for k in range(dims))
+        return labels, centroids, counts, sse
 
-        for cluster in (0, 1):
-            members = [norm_points[i] for i, lab in enumerate(labels) if lab == cluster]
-            if members:
-                centroid = [sum(m[k] for m in members) / len(members) for k in range(dims)]
-                if cluster == 0:
-                    c1 = centroid
-                else:
-                    c2 = centroid
-        if not changed:
-            break
+    def min_centroid_separation(centroids: Sequence[Sequence[float]]) -> float:
+        if len(centroids) < 2:
+            return float("inf")
+        min_sep = float("inf")
+        for a in range(len(centroids)):
+            for b in range(a + 1, len(centroids)):
+                dist = math.sqrt(sum((centroids[a][k] - centroids[b][k]) ** 2 for k in range(dims)))
+                min_sep = min(min_sep, dist)
+        return min_sep
 
-    counts = [sum(1 for l in labels if l == 0), sum(1 for l in labels if l == 1)]
-    separation = math.sqrt(sum((c1[k] - c2[k]) ** 2 for k in range(dims)))
-    min_ratio = min(counts) / len(labels)
-    should_split = separation >= 1.15 and min_ratio >= 0.18 and min(counts) >= 2
+    max_clusters = min(3, len(norm_points) // 2)
+    labels, _, _, best_sse = run_kmeans(1)
+    best_k = 1
+    for cluster_count in range(2, max_clusters + 1):
+        next_labels, next_centroids, next_counts, next_sse = run_kmeans(cluster_count)
+        min_count = min(next_counts)
+        min_ratio = min_count / len(next_labels)
+        separation = min_centroid_separation(next_centroids)
+        improvement = (best_sse - next_sse) / best_sse if best_sse > 0 else 0.0
+        min_improvement = 0.20 if cluster_count == 2 else 0.14
 
-    if not should_split:
+        if min_count < 2 or min_ratio < 0.12 or separation < 1.05:
+            continue
+        if improvement < min_improvement:
+            continue
+
+        labels = next_labels
+        best_sse = next_sse
+        best_k = cluster_count
+
+    if best_k == 1:
         return [
             Segment(start_sec=start, end_sec=end, speaker_id="Speaker 1")
             for start, end, _, _, _ in vad_segments
@@ -288,9 +325,7 @@ def _cluster_speakers(vad_segments: Sequence[tuple[float, float, float, float, f
 
     speakered: list[Segment] = []
     for idx, (start, end, _, _, _) in enumerate(vad_segments):
-        speakered.append(
-            Segment(start_sec=start, end_sec=end, speaker_id="Speaker 1" if labels[idx] == 0 else "Speaker 2")
-        )
+        speakered.append(Segment(start_sec=start, end_sec=end, speaker_id=f"Speaker {labels[idx] + 1}"))
 
     return speakered
 
@@ -358,7 +393,7 @@ def analyze_wav(input_path: Path, output_path: Path) -> AnalysisResult:
         meta=AnalysisMeta(
             total_speech_sec=total_speech,
             processing_ms=processing_ms,
-            model_version="heuristic-v3",
+            model_version="heuristic-v4",
         ),
     )
 
