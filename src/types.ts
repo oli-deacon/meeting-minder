@@ -1,4 +1,5 @@
 export type SessionStatus = "recording" | "recorded" | "processing" | "analyzed" | "error";
+export type TranscriptionStatus = "notStarted" | "processing" | "completed" | "error";
 
 export interface Session {
   id: string;
@@ -6,6 +7,8 @@ export interface Session {
   endedAt?: string;
   audioPath: string;
   status: SessionStatus;
+  transcriptionStatus: TranscriptionStatus;
+  transcriptionError?: string;
 }
 
 export interface Segment {
@@ -35,7 +38,24 @@ export interface AnalysisResult {
   meta: AnalysisMeta;
 }
 
+export interface TranscriptSegment {
+  startSec: number;
+  endSec: number;
+  textEn: string;
+  sourceLanguage: string;
+  speakerId?: string;
+}
+
+export interface TranscriptResult {
+  sessionId: string;
+  segments: TranscriptSegment[];
+  fullTextEn: string;
+  modelVersion: string;
+  processingMs: number;
+}
+
 export interface SessionDetails {
   session: Session;
   analysis?: AnalysisResult;
+  transcript?: TranscriptResult;
 }

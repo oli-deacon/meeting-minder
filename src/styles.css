@@ -147,6 +147,12 @@ p {
   color: #244446;
 }
 
+.session-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .session-item.active {
   border-color: #1f6f70;
   background: #e0f2f0;
@@ -171,6 +177,16 @@ p {
 .badge-processing,
 .badge-error {
   color: #3d595b;
+}
+
+.badge-transcription-notStarted,
+.badge-transcription-processing,
+.badge-transcription-error {
+  color: #5b6169;
+}
+
+.badge-transcription-completed {
+  color: #0f6c2f;
 }
 
 .session-details {

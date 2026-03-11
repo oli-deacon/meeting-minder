@@ -3,11 +3,13 @@ import {
   analyzeSession,
   deleteSession,
   getSessionDetails,
+  importWavRecording,
   listSessions,
   startRecording,
-  stopRecording
+  stopRecording,
+  transcribeSession
 } from "../lib/tauriApi";
-import type { AnalysisResult, Session, SessionDetails } from "../types";
+import type { AnalysisResult, Session, SessionDetails, TranscriptResult } from "../types";
 
 export function useSessions() {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -76,6 +78,26 @@ export function useSessions() {
     }
   }, [refreshSessions, refreshDetails]);
 
+  const onImportWav = useCallback(
+    async (path: string): Promise<boolean> => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await importWavRecording(path);
+        await refreshSessions();
+        setSelectedId(res.session.id);
+        await refreshDetails(res.session.id);
+        return true;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to import wav recording");
+        return false;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [refreshSessions, refreshDetails]
+  );
+
   const onStopRecording = useCallback(async () => {
     const recordingSession = sessions.find((session) => session.status === "recording");
     if (!recordingSession) {
@@ -107,6 +129,25 @@ export function useSessions() {
         return res;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to analyze session");
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [refreshSessions, refreshDetails]
+  );
+
+  const onTranscribe = useCallback(
+    async (sessionId: string): Promise<TranscriptResult | null> => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await transcribeSession(sessionId);
+        await refreshSessions();
+        await refreshDetails(sessionId);
+        return res;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to transcribe session");
         return null;
       } finally {
         setLoading(false);
@@ -151,8 +192,10 @@ export function useSessions() {
     error,
     recordingSession,
     onStartRecording,
+    onImportWav,
     onStopRecording,
     onAnalyze,
+    onTranscribe,
     onDelete,
     refreshSessions,
     refreshDetails

@@ -17,8 +17,10 @@ export function App() {
     error,
     recordingSession,
     onStartRecording,
+    onImportWav,
     onStopRecording,
     onAnalyze,
+    onTranscribe,
     onDelete
   } = useSessions();
   const [exportMessage, setExportMessage] = useState<string | null>(null);
@@ -28,12 +30,20 @@ export function App() {
 
   const selectedSession = details?.session;
   const analysis = details?.analysis;
+  const transcript = details?.transcript;
 
   const canAnalyze = useMemo(() => {
     if (!selectedSession) {
       return false;
     }
     return selectedSession.status !== "recording" && selectedSession.status !== "processing";
+  }, [selectedSession]);
+
+  const canTranscribe = useMemo(() => {
+    if (!selectedSession) {
+      return false;
+    }
+    return selectedSession.status !== "recording" && selectedSession.transcriptionStatus !== "processing";
   }, [selectedSession]);
 
   const canDelete = useMemo(() => {
@@ -49,10 +59,31 @@ export function App() {
     }
     try {
       const paths = await exportSession(selectedSession.id);
-      setExportMessage(`Exported CSV: ${paths.csvPath} | JSON: ${paths.jsonPath}`);
+      const parts: string[] = [];
+      if (paths.csvPath) {
+        parts.push(`Exported CSV: ${paths.csvPath}`);
+      }
+      if (paths.jsonPath) {
+        parts.push(`Analysis JSON: ${paths.jsonPath}`);
+      }
+      if (paths.transcriptJsonPath) {
+        parts.push(`Transcript JSON: ${paths.transcriptJsonPath}`);
+      }
+      if (paths.transcriptTxtPath) {
+        parts.push(`Transcript TXT: ${paths.transcriptTxtPath}`);
+      }
+      setExportMessage(parts.join(" | "));
     } catch (err) {
       setExportMessage(err instanceof Error ? err.message : "Export failed");
     }
+  };
+
+  const onImport = async () => {
+    const path = window.prompt("Enter absolute path to .wav file:");
+    if (!path) {
+      return;
+    }
+    await onImportWav(path.trim());
   };
 
   const onDeleteSession = async () => {
@@ -92,7 +123,7 @@ export function App() {
       <header className="header">
         <div>
           <h1>Meeting Minder</h1>
-          <p>Local meeting recorder with per-speaker speaking-time percentages.</p>
+          <p>Local meeting recorder with offline Thai-to-English transcription and speaker-time percentages.</p>
         </div>
         <div className="actions">
           <button type="button" onClick={onStartRecording} disabled={loading || !!recordingSession}>
@@ -100,6 +131,9 @@ export function App() {
           </button>
           <button type="button" onClick={onStopRecording} disabled={loading || !recordingSession}>
             Stop Recording
+          </button>
+          <button type="button" onClick={() => void onImport()} disabled={loading || !!recordingSession}>
+            Import WAV
           </button>
         </div>
       </header>
@@ -144,6 +178,14 @@ export function App() {
                 <strong>Status:</strong> {selectedSession.status}
               </p>
               <p>
+                <strong>Transcription:</strong> {selectedSession.transcriptionStatus}
+              </p>
+              {selectedSession.transcriptionError && (
+                <p className="hint">
+                  <strong>Transcription Error:</strong> {selectedSession.transcriptionError}
+                </p>
+              )}
+              <p>
                 <strong>Audio Path:</strong> {selectedSession.audioPath}
               </p>
 
@@ -155,10 +197,22 @@ export function App() {
                 >
                   Analyze Session
                 </button>
-                <button type="button" onClick={onExport} disabled={!analysis || loading}>
+                <button
+                  type="button"
+                  onClick={() => selectedSession && void onTranscribe(selectedSession.id)}
+                  disabled={!canTranscribe || loading}
+                >
+                  Transcribe to English
+                </button>
+                <button type="button" onClick={onExport} disabled={(!analysis && !transcript) || loading}>
                   Export CSV/JSON
                 </button>
-                <button type="button" className="danger-button" onClick={() => void onDeleteSession()} disabled={!canDelete || loading}>
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={() => void onDeleteSession()}
+                  disabled={!canDelete || loading}
+                >
                   Delete Recording
                 </button>
               </div>
@@ -210,6 +264,47 @@ export function App() {
                     <td>{speaker.totalSec.toFixed(2)}</td>
                     <td>{speaker.percentage.toFixed(1)}%</td>
                     <td>{speaker.segmentCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <h2>Transcript (English)</h2>
+        {!transcript && (
+          <p className="empty-state">
+            Run "Transcribe to English" to generate transcript. Install dependencies with
+            `pip install -r python/requirements.txt` first.
+          </p>
+        )}
+
+        {transcript && (
+          <div className="results">
+            <p>
+              <strong>Model:</strong> {transcript.modelVersion} | <strong>Processing:</strong>{" "}
+              {formatSeconds(Math.max(0, transcript.processingMs / 1000))}
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Start</th>
+                  <th>End</th>
+                  <th>Speaker</th>
+                  <th>Source Lang</th>
+                  <th>English Text</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transcript.segments.map((segment, idx) => (
+                  <tr key={`${segment.startSec}-${segment.endSec}-${idx}`}>
+                    <td>{segment.startSec.toFixed(2)}</td>
+                    <td>{segment.endSec.toFixed(2)}</td>
+                    <td>{segment.speakerId || "Unknown"}</td>
+                    <td>{segment.sourceLanguage}</td>
+                    <td>{segment.textEn}</td>
                   </tr>
                 ))}
               </tbody>

@@ -1,4 +1,4 @@
-use crate::models::{AnalysisResult, Session};
+use crate::models::{AnalysisResult, Session, TranscriptResult};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
@@ -32,6 +32,14 @@ pub fn analysis_json_path(session_dir: &Path) -> PathBuf {
     session_dir.join("analysis.json")
 }
 
+pub fn transcript_json_path(session_dir: &Path) -> PathBuf {
+    session_dir.join("transcript.json")
+}
+
+pub fn transcript_txt_path(session_dir: &Path) -> PathBuf {
+    session_dir.join("transcript.txt")
+}
+
 pub fn audio_wav_path(session_dir: &Path) -> PathBuf {
     session_dir.join("audio.wav")
 }
@@ -52,8 +60,7 @@ pub fn load_analysis(path: &Path) -> Result<AnalysisResult, String> {
     serde_json::from_str(&raw).map_err(|e| format!("failed to parse analysis json: {e}"))
 }
 
-pub fn save_analysis(path: &Path, analysis: &AnalysisResult) -> Result<(), String> {
-    let raw = serde_json::to_string_pretty(analysis)
-        .map_err(|e| format!("failed to serialize analysis json: {e}"))?;
-    fs::write(path, raw).map_err(|e| format!("failed to write analysis json: {e}"))
+pub fn load_transcript(path: &Path) -> Result<TranscriptResult, String> {
+    let raw = fs::read_to_string(path).map_err(|e| format!("failed to read transcript json: {e}"))?;
+    serde_json::from_str(&raw).map_err(|e| format!("failed to parse transcript json: {e}"))
 }

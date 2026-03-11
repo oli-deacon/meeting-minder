@@ -1,17 +1,19 @@
 # Meeting Minder
 
-Meeting Minder is a local macOS desktop app that records meeting audio and estimates what percentage of detected speech time each speaker used.
+Meeting Minder is a local macOS desktop app that records meeting audio, estimates speaker-time percentages, and can transcribe/translate Thai-to-English offline.
 
 ## What it does
 - Records microphone audio to a local WAV file.
 - Runs local (offline) speaker segmentation and clustering.
 - Shows per-speaker speaking percentages (`Speaker 1`, `Speaker 2`, ...).
+- Imports external WAV recordings.
+- Runs local offline transcription and translates non-English speech (including Thai) to English.
 - Exports analysis as CSV + JSON.
 
 ## Tech stack
 - Frontend: React + TypeScript + Vite
 - Desktop shell: Tauri (Rust)
-- Analyzer: Python (stdlib only, heuristic diarization)
+- Analyzer + Transcriber: Python
 
 ## Requirements (macOS)
 Install these before running the app:
@@ -57,6 +59,7 @@ From the project directory:
 ```bash
 cd /Users/olideacon/code/meeting-minder
 npm install
+pip3 install -r python/requirements.txt
 npm run tauri:dev
 ```
 
@@ -77,8 +80,9 @@ If recording fails or is silent:
 2. Speak in the meeting
 3. Click `Stop Recording`
 4. Select the session in the left panel
-5. Click `Analyze Session`
-6. Review percentages and click `Export CSV/JSON` if needed
+5. Click `Analyze Session` for speaker percentages
+6. Click `Transcribe to English` for transcript + Thai-to-English translation
+7. Click `Export CSV/JSON` if needed (includes transcript paths when available)
 
 ## Data location
 Session artifacts are stored in:
@@ -90,6 +94,8 @@ Each session folder contains:
 - `session.json`
 - `analysis.json` (after analysis)
 - `analysis.csv` (after export)
+- `transcript.json` (after transcription)
+- `transcript.txt` (after transcription)
 
 ## Run tests
 ```bash
@@ -113,6 +119,13 @@ The icons in `src-tauri/icons/` are missing or invalid. Re-sync the project file
 - Check microphone input level in macOS settings.
 - Move closer to mic or increase input gain.
 - Re-run `Analyze Session` (re-analysis is enabled).
+
+### Transcription fails with missing dependency
+Install transcription dependencies:
+
+```bash
+pip3 install -r python/requirements.txt
+```
 
 ### Push to GitHub fails with HTTPS credentials
 Use SSH remote:

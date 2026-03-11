@@ -10,6 +10,21 @@ pub enum SessionStatus {
     Error,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum TranscriptionStatus {
+    NotStarted,
+    Processing,
+    Completed,
+    Error,
+}
+
+impl Default for TranscriptionStatus {
+    fn default() -> Self {
+        Self::NotStarted
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
@@ -18,6 +33,10 @@ pub struct Session {
     pub ended_at: Option<String>,
     pub audio_path: String,
     pub status: SessionStatus,
+    #[serde(default)]
+    pub transcription_status: TranscriptionStatus,
+    #[serde(default)]
+    pub transcription_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,11 +74,32 @@ pub struct AnalysisResult {
     pub meta: AnalysisMeta,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptSegment {
+    pub start_sec: f64,
+    pub end_sec: f64,
+    pub text_en: String,
+    pub source_language: String,
+    pub speaker_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptResult {
+    pub session_id: String,
+    pub segments: Vec<TranscriptSegment>,
+    pub full_text_en: String,
+    pub model_version: String,
+    pub processing_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionDetails {
     pub session: Session,
     pub analysis: Option<AnalysisResult>,
+    pub transcript: Option<TranscriptResult>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,6 +117,14 @@ pub struct StopRecordingResponse {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportPaths {
-    pub csv_path: String,
-    pub json_path: String,
+    pub csv_path: Option<String>,
+    pub json_path: Option<String>,
+    pub transcript_json_path: Option<String>,
+    pub transcript_txt_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportRecordingResponse {
+    pub session: Session,
 }

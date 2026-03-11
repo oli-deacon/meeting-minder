@@ -3,21 +3,23 @@ mod models;
 mod recorder;
 mod state;
 mod storage;
+mod transcriber;
 
 use analyzer::run_python_analyzer;
 use chrono::Utc;
 use models::{
-    AnalysisResult, ExportPaths, Session, SessionDetails, SessionStatus, StartRecordingResponse,
-    StopRecordingResponse,
+    AnalysisResult, ExportPaths, ImportRecordingResponse, Session, SessionDetails, SessionStatus,
+    StartRecordingResponse, StopRecordingResponse, TranscriptResult, TranscriptionStatus,
 };
 use state::{ActiveRecording, AppState};
 use std::fs;
 use std::sync::mpsc;
 use storage::{
-    analysis_json_path, audio_wav_path, load_analysis, load_session, save_session, session_dir,
-    session_json_path, sessions_root,
+    analysis_json_path, audio_wav_path, load_analysis, load_session, load_transcript, save_session,
+    session_dir, session_json_path, sessions_root, transcript_json_path, transcript_txt_path,
 };
 use tauri::State;
+use transcriber::run_python_transcriber;
 use uuid::Uuid;
 
 fn collect_sessions(app: &tauri::AppHandle) -> Result<Vec<Session>, String> {
@@ -54,6 +56,7 @@ fn get_session_details(app: tauri::AppHandle, session_id: String) -> Result<Sess
     let dir = session_dir(&app, &session_id)?;
     let session_path = session_json_path(&dir);
     let analysis_path = analysis_json_path(&dir);
+    let transcript_path = transcript_json_path(&dir);
 
     let session = load_session(&session_path)?;
     let analysis = if analysis_path.exists() {
@@ -61,8 +64,27 @@ fn get_session_details(app: tauri::AppHandle, session_id: String) -> Result<Sess
     } else {
         None
     };
+    let transcript = if transcript_path.exists() {
+        Some(load_transcript(&transcript_path)?)
+    } else {
+        None
+    };
 
-    Ok(SessionDetails { session, analysis })
+    Ok(SessionDetails {
+        session,
+        analysis,
+        transcript,
+    })
+}
+
+#[tauri::command]
+fn get_transcript(app: tauri::AppHandle, session_id: String) -> Result<TranscriptResult, String> {
+    let dir = session_dir(&app, &session_id)?;
+    let transcript_path = transcript_json_path(&dir);
+    if !transcript_path.exists() {
+        return Err("transcript not found for session".to_string());
+    }
+    load_transcript(&transcript_path)
 }
 
 #[tauri::command]
@@ -89,6 +111,8 @@ fn start_recording(
         ended_at: None,
         audio_path: audio_path.to_string_lossy().to_string(),
         status: SessionStatus::Recording,
+        transcription_status: TranscriptionStatus::NotStarted,
+        transcription_error: None,
     };
 
     save_session(&session_json_path(&dir), &session)?;
@@ -104,6 +128,41 @@ fn start_recording(
     });
 
     Ok(StartRecordingResponse { session })
+}
+
+#[tauri::command]
+fn import_wav_recording(app: tauri::AppHandle, path: String) -> Result<ImportRecordingResponse, String> {
+    let source = std::path::PathBuf::from(path);
+    if !source.exists() {
+        return Err("wav file does not exist".to_string());
+    }
+    let ext = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if ext != "wav" {
+        return Err("only .wav files are supported for import".to_string());
+    }
+
+    let id = Uuid::new_v4().to_string();
+    let dir = session_dir(&app, &id)?;
+    let dest_audio = audio_wav_path(&dir);
+    fs::copy(&source, &dest_audio).map_err(|e| format!("failed to copy wav file: {e}"))?;
+
+    let now = Utc::now().to_rfc3339();
+    let session = Session {
+        id,
+        started_at: now.clone(),
+        ended_at: Some(now),
+        audio_path: dest_audio.to_string_lossy().to_string(),
+        status: SessionStatus::Recorded,
+        transcription_status: TranscriptionStatus::NotStarted,
+        transcription_error: None,
+    };
+
+    save_session(&session_json_path(&dir), &session)?;
+    Ok(ImportRecordingResponse { session })
 }
 
 #[tauri::command]
@@ -201,28 +260,103 @@ fn analyze_session(
 }
 
 #[tauri::command]
+fn transcribe_session(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    session_id: String,
+) -> Result<TranscriptResult, String> {
+    let active_guard = state
+        .active_recording
+        .lock()
+        .map_err(|_| "failed to lock active recording state".to_string())?;
+    if let Some(active) = active_guard.as_ref() {
+        if active.session_id == session_id {
+            return Err("cannot transcribe while session is recording".to_string());
+        }
+    }
+    drop(active_guard);
+
+    let dir = session_dir(&app, &session_id)?;
+    let session_path = session_json_path(&dir);
+    let analysis_path = analysis_json_path(&dir);
+    let transcript_path = transcript_json_path(&dir);
+    let transcript_txt = transcript_txt_path(&dir);
+
+    let mut session = load_session(&session_path)?;
+    session.transcription_status = TranscriptionStatus::Processing;
+    session.transcription_error = None;
+    save_session(&session_path, &session)?;
+
+    let input_audio = std::path::PathBuf::from(&session.audio_path);
+    let result = run_python_transcriber(
+        &input_audio,
+        &transcript_path,
+        &transcript_txt,
+        if analysis_path.exists() {
+            Some(analysis_path.as_path())
+        } else {
+            None
+        },
+    );
+
+    match result {
+        Ok(()) => {
+            let transcript = load_transcript(&transcript_path)?;
+            session.transcription_status = TranscriptionStatus::Completed;
+            session.transcription_error = None;
+            save_session(&session_path, &session)?;
+            Ok(transcript)
+        }
+        Err(err) => {
+            session.transcription_status = TranscriptionStatus::Error;
+            session.transcription_error = Some(err.clone());
+            save_session(&session_path, &session)?;
+            Err(err)
+        }
+    }
+}
+
+#[tauri::command]
 fn export_session(app: tauri::AppHandle, session_id: String) -> Result<ExportPaths, String> {
     let dir = session_dir(&app, &session_id)?;
     let analysis_path = analysis_json_path(&dir);
-    if !analysis_path.exists() {
-        return Err("analysis not found for session".to_string());
-    }
-    let analysis = load_analysis(&analysis_path)?;
+    let mut csv_path: Option<String> = None;
+    let mut json_path: Option<String> = None;
 
-    let csv_path = dir.join("analysis.csv");
-    let mut csv = String::from("speakerId,totalSec,percentage,segmentCount\n");
-    for speaker in analysis.speakers {
-        csv.push_str(&format!(
-            "{},{:.4},{:.4},{}\n",
-            speaker.speaker_id, speaker.total_sec, speaker.percentage, speaker.segment_count
-        ));
+    if analysis_path.exists() {
+        let analysis = load_analysis(&analysis_path)?;
+        let generated_csv = dir.join("analysis.csv");
+        let mut csv = String::from("speakerId,totalSec,percentage,segmentCount\n");
+        for speaker in analysis.speakers {
+            csv.push_str(&format!(
+                "{},{:.4},{:.4},{}\n",
+                speaker.speaker_id, speaker.total_sec, speaker.percentage, speaker.segment_count
+            ));
+        }
+        fs::write(&generated_csv, csv).map_err(|e| format!("failed to write csv export: {e}"))?;
+        csv_path = Some(generated_csv.to_string_lossy().to_string());
+        json_path = Some(analysis_path.to_string_lossy().to_string());
     }
 
-    fs::write(&csv_path, csv).map_err(|e| format!("failed to write csv export: {e}"))?;
+    let transcript_json = transcript_json_path(&dir);
+    let transcript_txt = transcript_txt_path(&dir);
+    if csv_path.is_none() && !transcript_json.exists() && !transcript_txt.exists() {
+        return Err("nothing to export for session (analysis/transcript missing)".to_string());
+    }
 
     Ok(ExportPaths {
-        csv_path: csv_path.to_string_lossy().to_string(),
-        json_path: analysis_path.to_string_lossy().to_string(),
+        csv_path,
+        json_path,
+        transcript_json_path: if transcript_json.exists() {
+            Some(transcript_json.to_string_lossy().to_string())
+        } else {
+            None
+        },
+        transcript_txt_path: if transcript_txt.exists() {
+            Some(transcript_txt.to_string_lossy().to_string())
+        } else {
+            None
+        },
     })
 }
 
@@ -258,9 +392,12 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             start_recording,
             stop_recording,
+            import_wav_recording,
             list_sessions,
             get_session_details,
+            get_transcript,
             analyze_session,
+            transcribe_session,
             export_session,
             delete_session
         ])
