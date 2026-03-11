@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import json
+import re
 import time
 from typing import Any, Sequence
 
 
 UNKNOWN_SPEAKER = "Unknown"
+THAI_CHAR_RE = re.compile(r"[\u0E00-\u0E7F]")
 
 
 @dataclass
@@ -135,6 +137,31 @@ def _build_model(model_size: str) -> tuple[Any, str]:
     return model, f"faster-whisper-{model_size}"
 
 
+def _count_thai_chars(value: str) -> int:
+    return len(THAI_CHAR_RE.findall(value))
+
+
+def _segments_from_generated(generated_segments: Any, default_language: str) -> tuple[list[TranscriptSegment], list[str]]:
+    transcript_segments: list[TranscriptSegment] = []
+    full_text_chunks: list[str] = []
+    for generated in generated_segments:
+        text = (getattr(generated, "text", "") or "").strip()
+        if not text:
+            continue
+        seg_lang = getattr(generated, "language", None) or default_language
+        transcript_segments.append(
+            TranscriptSegment(
+                start_sec=float(getattr(generated, "start", 0.0)),
+                end_sec=float(getattr(generated, "end", 0.0)),
+                text_en=text,
+                source_language=str(seg_lang),
+                speaker_id=None,
+            )
+        )
+        full_text_chunks.append(text)
+    return transcript_segments, full_text_chunks
+
+
 def transcribe_wav(
     input_path: Path,
     output_json_path: Path,
@@ -153,26 +180,31 @@ def transcribe_wav(
         task="translate",
         beam_size=5,
         vad_filter=True,
+        initial_prompt="Translate all speech into natural English. Do not output Thai script.",
     )
 
     source_lang = getattr(info, "language", None) or "unknown"
-    transcript_segments: list[TranscriptSegment] = []
-    full_text_chunks: list[str] = []
-    for generated in generated_segments:
-        text = (getattr(generated, "text", "") or "").strip()
-        if not text:
-            continue
-        seg_lang = getattr(generated, "language", None) or source_lang
-        transcript_segments.append(
-            TranscriptSegment(
-                start_sec=float(getattr(generated, "start", 0.0)),
-                end_sec=float(getattr(generated, "end", 0.0)),
-                text_en=text,
-                source_language=str(seg_lang),
-                speaker_id=None,
-            )
+    transcript_segments, full_text_chunks = _segments_from_generated(generated_segments, str(source_lang))
+    combined_text = " ".join(full_text_chunks).strip()
+
+    # Mixed-language meetings can leave Thai tokens in translate mode.
+    # Fallback to Thai-forced translation and keep the cleaner English output.
+    if _count_thai_chars(combined_text) > 0:
+        th_segments, th_info = model.transcribe(
+            str(input_path),
+            task="translate",
+            language="th",
+            beam_size=5,
+            vad_filter=True,
+            initial_prompt="Translate all speech into natural English. Do not output Thai script.",
         )
-        full_text_chunks.append(text)
+        th_source_lang = getattr(th_info, "language", None) or "th"
+        th_transcript_segments, th_full_text_chunks = _segments_from_generated(th_segments, str(th_source_lang))
+        th_combined_text = " ".join(th_full_text_chunks).strip()
+        if _count_thai_chars(th_combined_text) < _count_thai_chars(combined_text):
+            transcript_segments = th_transcript_segments
+            full_text_chunks = th_full_text_chunks
+            combined_text = th_combined_text
 
     analysis_segments = _load_analysis_segments(analysis_path)
     with_speakers = assign_speakers(transcript_segments, analysis_segments)
@@ -180,7 +212,7 @@ def transcribe_wav(
     result = TranscriptResult(
         session_id=input_path.parent.name,
         segments=with_speakers,
-        full_text_en=" ".join(full_text_chunks).strip(),
+        full_text_en=combined_text,
         model_version=model_version,
         processing_ms=int((time.time() - started) * 1000),
     )

@@ -8,10 +8,21 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "python" / "transcriber"))
 
-from transcribe_core import TranscriptResult, TranscriptSegment, assign_speakers, result_to_payload, write_transcript_txt  # noqa: E402
+from transcribe_core import (  # noqa: E402
+    TranscriptResult,
+    TranscriptSegment,
+    _count_thai_chars,
+    assign_speakers,
+    result_to_payload,
+    write_transcript_txt,
+)
 
 
 class TranscriberCoreTests(unittest.TestCase):
+    def test_count_thai_chars(self) -> None:
+        self.assertEqual(_count_thai_chars("hello"), 0)
+        self.assertGreater(_count_thai_chars("สวัสดี"), 0)
+
     def test_result_to_payload_schema(self) -> None:
         result = TranscriptResult(
             session_id="session-abc",
